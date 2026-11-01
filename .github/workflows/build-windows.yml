@@ -13,6 +13,9 @@ on:
       llm:
         description: "Folder-naming model: 1.5b (recommended), 3b or none"
         default: "1.5b"
+      release:
+        description: "Publish a GitHub Release with this version tag, e.g. v0.1.0 (leave empty for a test build)"
+        default: ""
   push:
     tags: ["v*"]
   pull_request:
@@ -159,11 +162,13 @@ jobs:
           retention-days: 14
           compression-level: 0
 
-      - name: Publish a release (tags only)
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Publish a release (version tag pushed, or "release" input given)
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.release != ''
         uses: softprops/action-gh-release@v2
         with:
-          name: Local File Sorter ${{ github.ref_name }}
+          tag_name: ${{ inputs.release || github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          name: Local File Sorter ${{ inputs.release || github.ref_name }}
           body_path: docs/RELEASE-NOTES.md
           files: |
             LocalFileSorter-windows.zip
