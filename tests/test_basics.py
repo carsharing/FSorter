@@ -109,3 +109,13 @@ def test_event_segmentation():
     h = 3600
     times = [0, h, 2 * h, 30 * h, 31 * h, 100 * h]
     assert segment_events(times) == [[0, 1, 2], [3, 4], [5]]
+
+
+def test_boilerplate_file_names_are_not_used_as_content():
+    from filesorter.engine import path_context
+
+    assert path_context("Pictures/Screenshots/Capture d'écran 2024-05-03.png") == ""
+    assert path_context("Pictures/Screenshot 2024-05-02 101500.png") == ""
+    assert path_context("DCIM/IMG_4100.JPG") == ""
+    assert path_context("Projets/Formation Excel/Budget prévisionnel 2025.xlsx") == \
+        "Projets Formation Excel Budget prévisionnel 2025"

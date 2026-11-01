@@ -67,10 +67,17 @@ def _system_dirs() -> list[str]:
 
 
 def path_context(rel: str) -> str:
-    """Meaningful folder names + file name, e.g. 'Formation Excel 2023 Module 2 exercice tableaux'."""
+    """Meaningful folder names + file name, e.g. 'Formation Excel 2023 Module 2 exercice tableaux'.
+    Boilerplate names ('Screenshot 2024-05-02 101500', "Capture d'écran…", 'IMG_4100', 'Scan_001') say nothing
+    about the subject and would dominate short texts, so they are left out."""
     parts = Path(rel).parts
+    if not parts:
+        return ""
     folders = [split_name(p) for p in parts[:-1][-3:] if p.lower().strip() not in GENERIC_FOLDERS]
-    return " ".join(folders + [split_name(parts[-1])]) if parts else ""
+    name = split_name(parts[-1])
+    if not keywords(name):
+        name = ""
+    return " ".join(x for x in folders + [name] if x)
 
 
 class Engine:

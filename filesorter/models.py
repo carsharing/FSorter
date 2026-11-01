@@ -357,6 +357,12 @@ class OcrEngine:
         return " ".join(r[1] for r in result if len(r) > 2 and float(r[2]) >= min_conf)
 
 
+# Broad parent names offered to the naming model (it may still invent one when none fits)
+AREA_SUGGESTIONS = ["Finance", "Human resources", "IT & security", "Marketing & communication", "Sales",
+                    "Legal", "Training", "Research & studies", "Operations & logistics", "Management",
+                    "Projects", "Administration", "Sustainability", "Data & analytics", "Product & design"]
+
+
 class LocalNamer:
     """Turns keywords + example titles into a short, specific folder name with a local .gguf model."""
 
@@ -394,10 +400,10 @@ class LocalNamer:
         subs = "\n".join(f"- {c}" for c in child_names[:15])
         rule = f"\nDo NOT answer any of: {', '.join(avoid)}." if avoid else ""
         return self._ask(
-            "Give the name of the broad parent folder that contains these sub-folders: 1 to 3 words, broader "
-            "than the sub-folders, like a field or a department (for example 'Finance', 'Human resources', "
-            "'IT & security', 'Marketing', 'Training', 'Research', 'Legal', 'Sales', 'Operations'). "
-            f"It must cover ALL the sub-folders together and be different from their names.{rule}\n"
+            "Give the name of the broad parent folder that contains ALL these sub-folders. If one of these "
+            f"fits all of them, answer exactly with it: {', '.join(AREA_SUGGESTIONS)}. Otherwise write a "
+            "1 to 3 word field or department name that is broader than the sub-folders and different from "
+            f"their names.{rule}\n"
             f"Sub-folders:\n{subs}\nKeywords: {', '.join(keywords[:10])}\nParent folder name:"
         )
 
