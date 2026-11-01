@@ -38,6 +38,36 @@ CLEAR_MIN, CLEAR_MARGIN = 0.2, 0.3   # ...and so is a modest match that clearly 
                                      # (short texts such as a screenshot's few lines score lower overall)
 
 
+def neighbour_votes(X: np.ndarray, queries: list[int], groups: list[list[int]], levels: Levels, sim: float,
+                    k: int = 5) -> list[tuple[int | None, float]]:
+    """For each query file: the group most of its k closest grouped files belong to, if they agree enough.
+    Robust for short texts (a screenshot's few lines) that resemble some members more than the average."""
+    owner = np.full(len(X), -1)
+    for gi, g in enumerate(groups):
+        owner[g] = gi
+    members = np.flatnonzero(owner >= 0)
+    out: list[tuple[int | None, float]] = []
+    if len(members) == 0 or not queries:
+        return [(None, 0.0)] * len(queries)
+    k = min(k, len(members))
+    scale = max(sim - levels.base, 1e-6)
+    for s0 in range(0, len(queries), 512):
+        q = queries[s0:s0 + 512]
+        Sim = X[q] @ X[members].T
+        top = np.argpartition(-Sim, k - 1, axis=1)[:, :k]
+        for r in range(len(q)):
+            idx = top[r]
+            groups_hit = owner[members[idx]]
+            vals, counts = np.unique(groups_hit, return_counts=True)
+            g = int(vals[counts.argmax()])
+            if counts.max() < max(3, (k + 1) // 2 + 1):     # need a clear majority of the neighbours
+                out.append((None, 0.0))
+                continue
+            rel = (float(Sim[r, idx][groups_hit == g].mean()) - levels.base) / scale
+            out.append((g, rel) if rel >= CLEAR_MIN else (None, 0.0))
+    return out
+
+
 def acceptable_match(row: np.ndarray) -> int | None:
     """Index of the folder a file may join (scores on the relative scale), or None."""
     if len(row) == 0:
@@ -181,12 +211,16 @@ def cluster(X: np.ndarray, detail: str = "normal", levels: Levels | None = None
         for i, v in zip(g, s):
             score[i] = float(min(1.0, max(0.0, v)))
 
-    # Second chance for files that didn't form a group: join the most similar group if close enough.
+    # Second chance for files that didn't form a group: join the most similar group if close enough,
+    # judged against the group as a whole and against its closest individual files.
     leftover = []
     if orphans:
         S = _scores(X[orphans], cents, levels, sim)
-        for i, row in zip(orphans, S):
+        K = neighbour_votes(X, orphans, keep, levels, sim)
+        for i, row, (kb, kscore) in zip(orphans, S, K):
             b = acceptable_match(row)
+            if b is None and kb is not None:
+                b, row = kb, np.where(np.arange(len(row)) == kb, kscore, row)
             if b is not None:
                 keep[b].append(i)
                 score[i] = float(min(1.0, max(0.0, row[b])))

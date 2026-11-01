@@ -615,10 +615,18 @@ class Engine:
                                      dest=None, status="pending", dup_of=None)
                     cat_of[r["id"]] = cid
                     placed.add(i)
-            for i, r in enumerate(text_rows):
-                if i not in placed:
-                    st.set_placement(r["id"], category_id=None, role="unsorted", dest=None, status="pending",
-                                     reason="no other file is about the same subject", confidence=0.0, dup_of=None)
+            unplaced = [i for i in range(len(text_rows)) if i not in placed]
+            if unplaced and topics:
+                C = np.stack([t.centroid for t in topics])
+                S = (X[unplaced] @ C.T - levels.base) / max(sim - levels.base, 1e-6)
+            for n, i in enumerate(unplaced):
+                reason, conf = "no other file is about the same subject", 0.0
+                if topics:
+                    b = int(S[n].argmax())
+                    conf = float(max(0.0, S[n][b]))
+                    reason += f" (closest folder: {topics[b].area}/{topics[b].name}, match {conf:.2f})"
+                st.set_placement(text_rows[i]["id"], category_id=None, role="unsorted", dest=None,
+                                 status="pending", reason=reason, confidence=conf, dup_of=None)
         text_areas = {c["area"].lower() for c in st.categories()}
 
         # --- pictures and videos

@@ -48,7 +48,7 @@ def _topics(centres, per=8, noise=0.12, seed=0):
 
 
 def test_unrelated_topics_are_not_forced_into_one_area():
-    from filesorter.organize import Levels, group_into_areas
+    from filesorter.organize import group_into_areas
 
     rng = np.random.default_rng(3)
     centres = np.linalg.qr(rng.normal(size=(32, 4)))[0].T      # 4 unrelated subjects
@@ -131,3 +131,18 @@ def test_parent_name_must_not_repeat_a_subfolder():
     assert _too_close("excel macros vba", ["Excel Macros VBA"])
     assert not _too_close("Training", ["Excel Macros VBA"])
     assert not _too_close("Human resources", ["Onboarding Interview Handbook"])
+
+
+def test_short_text_joins_the_group_of_its_closest_files():
+    """A file far from a group's average but very close to several of its members joins that group."""
+    from filesorter.organize import Levels, neighbour_votes
+
+    rng = np.random.default_rng(5)
+    d = 24
+    a, b = np.linalg.qr(rng.normal(size=(d, 2)))[0].T
+    group_a = [a + 0.6 * rng.normal(size=d) for _ in range(8)]
+    group_b = [b + 0.6 * rng.normal(size=d) for _ in range(8)]
+    X = np.array(group_a + group_b + [group_a[0] + group_a[1] + group_a[2]])
+    X /= np.linalg.norm(X, axis=1, keepdims=True)
+    votes = neighbour_votes(X, [16], [list(range(8)), list(range(8, 16))], Levels(0.0, 0.8), 0.4)
+    assert votes[0][0] == 0
