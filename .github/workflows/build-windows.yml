@@ -101,7 +101,9 @@ jobs:
         run: |
           python tests/make_sample.py sample
           python -m filesorter run --models models --source sample --dest sorted
-          Get-ChildItem -Recurse -Directory sorted | Where-Object { $_.FullName -notmatch "_FileSorter" } | ForEach-Object { $_.FullName.Substring((Resolve-Path sorted).Path.Length) }
+          python tests/add_new_files.py sample
+          python -m filesorter run --models models --source sample --dest sorted
+          python tools/show_result.py sorted
 
       - name: Upload the sample result (to inspect the folders and report)
         uses: actions/upload-artifact@v4

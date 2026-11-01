@@ -26,10 +26,10 @@ from .config import Settings
 from .extract import KIND_FOLDERS, Extracted, extract
 from .features import (colour_signature, full_hash, hamming_matrix, head_tail_hash, image_hashes,
                        text_fingerprint, to_u64)
-from .labels import LABELS, PHOTOS, TEXTUAL_AREAS
+from .labels import LABELS, PHOTOS, TEXTUAL_AREAS, pick_label
 from .models import ModelHub
-from .organize import (CONFIDENT, LOOSE, Levels, Terms, VisualItem, event_name, keyword_table, organize_documents,
-                       organize_visual, segment_events, visual_area)
+from .organize import (CONFIDENT, LOOSE, Levels, Terms, VisualItem, area_threshold, event_name, keyword_table,
+                       organize_documents, organize_visual, segment_events, visual_area)
 from .paths import (DUPLICATE_DIRNAME, IS_WINDOWS, STATE_DIRNAME, UNSORTED_DIRNAME, is_relative_to, long_path,
                     models_dir)
 from .state import ANALYSIS_VERSION, State, from_blob, to_blob
@@ -333,13 +333,9 @@ class Engine:
                         logits = 100.0 * (L @ v)
                         p = np.exp(logits - logits.max())
                         p /= p.sum()
-                        area_scores: dict[str, float] = defaultdict(float)
-                        for j, (_, _, area) in enumerate(LABELS):
-                            area_scores[area] += float(p[j])
-                        best_area = max(area_scores, key=area_scores.get)
-                        in_area = [j for j, lab in enumerate(LABELS) if lab[2] == best_area]
-                        j = max(in_area, key=lambda k: p[k])
-                        rec.update(label=int(j), label_score=float(p[j]), area_hint=best_area)
+                        camera = bool(json.loads(rec["meta"]).get("camera"))
+                        j, score, area = pick_label(p, camera=camera)
+                        rec.update(label=j, label_score=score, area_hint=area)
             except Exception as exc:  # noqa: BLE001
                 log.exception("visual embedding failed")
                 self.errors.append(f"image analysis failed: {exc}")
@@ -817,7 +813,7 @@ class Engine:
                 areas = self._area_centroids()
                 for t, kw in zip(topics, kws):
                     t.keywords = kw or t.keywords
-                    area = self._closest_area(t.centroid, areas, levels, lv.get("sim")) or t.area
+                    area = self._closest_area(t.centroid, areas, levels, self.s.detail) or t.area
                     siblings = {c["name"] for c in st.categories() if c["area"] == area}
                     name = unique_name(t.name, siblings)
                     folder = f"{area}/{name}"
@@ -860,15 +856,14 @@ class Engine:
         return {a: np.mean(v, axis=0) for a, v in acc.items()}
 
     @staticmethod
-    def _closest_area(centroid, areas, levels, sim) -> str | None:
-        if not areas or centroid is None or levels is None or sim is None:
+    def _closest_area(centroid, areas, levels, detail) -> str | None:
+        """The existing area whose documents are related to the new topic's (same rule as on the first run)."""
+        if not areas or centroid is None or levels is None:
             return None
         names = list(areas)
-        c = centroid / max(np.linalg.norm(centroid), 1e-12)
-        A = np.stack([areas[n] for n in names])
-        s = (A @ c - levels.base) / max(sim - levels.base, 1e-6)
+        s = np.stack([areas[n] for n in names]) @ centroid   # average similarity between their documents
         b = int(s.argmax())
-        return names[b] if s[b] >= LOOSE * 0.8 else None
+        return names[b] if s[b] >= area_threshold(levels, detail) else None
 
     def _assign_visual(self, rows) -> None:
         st, hub = self.state, self.hub

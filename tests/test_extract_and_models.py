@@ -77,3 +77,5 @@ def test_clean_llm_name():
     assert clean_llm_name("Folder name: Q3 sales forecasts.") == "Q3 sales forecasts"
     assert clean_llm_name("<think>hmm</think>\nOnboarding new hires") == "Onboarding new hires"
     assert clean_llm_name("This is a long explanation that is clearly not a folder name at all") is None
+    assert clean_llm_name("VehicleRoutingStudy") == "Vehicle Routing Study"
+    assert clean_llm_name("iPhone") == "iPhone" and clean_llm_name("VBA") == "VBA"

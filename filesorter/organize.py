@@ -289,11 +289,8 @@ def area_keyword(area_topics: list[int], topic_presence: list[set[str]], topic_k
     for p in topic_presence:
         df.update(p)
     if len(area_topics) == 1:
-        ti = area_topics[0]
-        # the most widespread of the topic's own keywords, preferring a single word
-        cands = [k for k in topic_keywords[ti] if k in topic_presence[ti]] or topic_keywords[ti]
-        singles = [k for k in cands if " " not in k]
-        return (singles or cands or [None])[0]
+        # a single subject: its main keyword/phrase is the clearest name ("Vehicle routing")
+        return (topic_keywords[area_topics[0]] or [None])[0]
     best, best_score = None, 0.0
     # candidates must be real subject words of the sub-folders (not letter boilerplate shared by everything)
     subject_words = {k for ti in area_topics for k in topic_keywords[ti][:8]}
@@ -325,6 +322,36 @@ def _dominant_folder(parents: list[str], share: float = 0.5) -> str | None:
 # ---------------------------------------------------------------------------------------------------------------
 # Documents
 # ---------------------------------------------------------------------------------------------------------------
+AREA_FACTOR = 0.35   # areas link topics at a looser similarity than the one that defines a topic
+
+
+def area_threshold(levels: Levels, detail: str) -> float:
+    return levels.at(DETAIL.get(detail, DETAIL["normal"])[0] * AREA_FACTOR)
+
+
+def group_into_areas(means: np.ndarray, levels: Levels, detail: str = "normal") -> np.ndarray:
+    """Links topics into broad areas. `means` are the topics' (unnormalised) mean vectors, so
+    means[a] @ means[b] is the average similarity between their documents - on the same scale as `levels`.
+    Unrelated topics are never forced together; only very many areas are capped."""
+    from sklearn.cluster import AgglomerativeClustering
+
+    T = len(means)
+    if T < 2:
+        return np.zeros(T, dtype=int)
+    S = means @ means.T
+    D = np.clip(1.0 - S, 0.0, None)
+    np.fill_diagonal(D, 0.0)
+    D = (D + D.T) / 2
+    labels = AgglomerativeClustering(n_clusters=None, metric="precomputed", linkage="average",
+                                     distance_threshold=max(1e-6, 1.0 - area_threshold(levels, detail))
+                                     ).fit_predict(D)
+    max_areas = max(8, min(25, round(2 * math.sqrt(T))))
+    if len(set(labels)) > max_areas:
+        labels = AgglomerativeClustering(n_clusters=max_areas, metric="precomputed", linkage="average"
+                                         ).fit_predict(D)
+    return labels
+
+
 def organize_documents(X: np.ndarray, doc_terms: Terms, titles: list[str], detail: str = "normal",
                        namer=None, levels: Levels | None = None, texts: list[str] | None = None
                        ) -> tuple[list[Topic], Levels, float]:
@@ -335,11 +362,8 @@ def organize_documents(X: np.ndarray, doc_terms: Terms, titles: list[str], detai
     if not topics:
         return [], levels, sim
 
-    # Two levels: link topic centroids into broad areas (about sqrt(#topics) of them).
-    C = np.stack([t.centroid for t in topics])
-    C = C / np.maximum(np.linalg.norm(C, axis=1, keepdims=True), 1e-12)
-    n_areas = max(1, min(15, round(math.sqrt(len(topics)))))
-    area_labels = _agglomerate(C, 0.0, n_clusters=n_areas) if len(topics) > 1 else np.zeros(1, dtype=int)
+    # Two levels: topics whose documents are, on average, still clearly related form a broad area.
+    area_labels = group_into_areas(np.stack([t.centroid for t in topics]), levels, detail)
 
     for t, kw in zip(topics, keyword_table(doc_terms, [t.members for t in topics])):
         t.keywords = kw
@@ -369,7 +393,13 @@ def organize_documents(X: np.ndarray, doc_terms: Terms, titles: list[str], detai
         members = [i for ti in tis for i in topics[ti].members]
         if namer is not None:
             kw = [k for ti in tis for k in topics[ti].keywords[:3]]
-            aname = namer.name_area([topics[ti].name for ti in tis], kw)
+            children = [topics[ti].name for ti in tis]
+            taken = {c.lower() for c in children} | {a.lower() for a in used_areas}
+            aname = namer.name_area(children, kw)
+            if aname and aname.lower() in taken:   # must be broader than its sub-folders: ask once more
+                aname = namer.name_area(children, kw, avoid=sorted(taken))
+                if aname and aname.lower() in taken:
+                    aname = None
         if not aname:
             k = area_keyword(tis, topic_presence, [t.keywords for t in topics])
             if k:

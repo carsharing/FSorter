@@ -108,3 +108,19 @@ LABELS: list[tuple[str, str, str]] = [
 ]
 
 LABEL_PROMPTS = [p for p, _, _ in LABELS]
+
+# A photo taken by a camera/phone is a photo of something real: an event, a place, or a document/whiteboard.
+CAMERA_AREAS = {PHOTOS, SCANS}
+
+
+def pick_label(probs, camera: bool = False) -> tuple[int, float, str]:
+    """From the image model's probability for every label: best area (sum over its labels), then the best
+    label inside that area. Camera photos can only be photos or photographed documents."""
+    area_scores: dict[str, float] = {}
+    for j, (_, _, area) in enumerate(LABELS):
+        if camera and area not in CAMERA_AREAS:
+            continue
+        area_scores[area] = area_scores.get(area, 0.0) + float(probs[j])
+    area = max(area_scores, key=area_scores.get)
+    j = max((k for k, lab in enumerate(LABELS) if lab[2] == area), key=lambda k: probs[k])
+    return int(j), float(probs[j]), area

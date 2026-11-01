@@ -389,10 +389,15 @@ class LocalNamer:
         ex = "\n".join(f"- {e[:120]}" for e in examples[:10])
         return self._ask(f"Keywords: {', '.join(keywords[:12])}\nExample files:\n{ex}\nFolder name:")
 
-    def name_area(self, child_names: list[str], keywords: list[str]) -> str | None:
+    def name_area(self, child_names: list[str], keywords: list[str], avoid: list[str] | None = None
+                  ) -> str | None:
         subs = "\n".join(f"- {c}" for c in child_names[:15])
+        rule = f"\nDo NOT answer any of: {', '.join(avoid)}." if avoid else ""
         return self._ask(
-            "These sub-folders belong together. Give the broad parent folder name (1 to 3 words).\n"
+            "Give the name of the broad parent folder that contains these sub-folders: 1 to 3 words, broader "
+            "than the sub-folders, like a field or a department (for example 'Finance', 'Human resources', "
+            "'IT & security', 'Marketing', 'Training', 'Research', 'Legal', 'Sales', 'Operations'). "
+            f"It must be different from the sub-folder names.{rule}\n"
             f"Sub-folders:\n{subs}\nKeywords: {', '.join(keywords[:10])}\nParent folder name:"
         )
 
@@ -408,6 +413,11 @@ def clean_llm_name(text: str) -> str | None:
     line = text.splitlines()[0] if text else ""
     line = re.sub(r"^(folder name|parent folder name|nom du dossier)\s*:\s*", "", line, flags=re.I)
     line = line.strip().strip("\"'`*#.-: ").strip()
+    if " " not in line:
+        # 'VehicleRoutingStudy' -> 'Vehicle Routing Study' (but leave 'iPhone', 'VBA', 'PowerBI' alone)
+        parts = re.split(r"(?<=[a-zà-ÿ])(?=[A-ZÀ-Þ][a-zà-ÿ])", line)
+        if len(parts) >= 3 or (len(parts) == 2 and min(map(len, parts)) >= 4):
+            line = " ".join(parts)
     if not line or len(line) > 60 or len(line.split()) > 7:
         return None
     return line

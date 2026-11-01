@@ -14,8 +14,10 @@ class FakeNamer:
         self.calls.append(("topic", keywords, examples))
         return f"Topic {keywords[0]}"
 
-    def name_area(self, child_names, keywords):
-        self.calls.append(("area", child_names))
+    def name_area(self, child_names, keywords, avoid=None):
+        self.calls.append(("area", child_names, avoid))
+        if avoid is None and len(child_names) == 1:
+            return child_names[0]        # lazy answer: same as the sub-folder -> must be asked again
         return "Area " + child_names[0].split()[-1]
 
 
@@ -35,6 +37,54 @@ def test_language_model_names_are_used():
     assert all(t.name.startswith("Topic ") for t in topics)
     assert all(t.area.startswith("Area ") for t in topics)
     assert any(c[0] == "topic" and c[2] for c in namer.calls)  # examples were given to the model
+    # a parent folder never repeats its only sub-folder's name
+    assert all(t.area.lower() != t.name.lower() for t in topics)
+
+
+def _topics(centres, per=8, noise=0.12, seed=0):
+    rng = np.random.default_rng(seed)
+    X = np.concatenate([c + noise * rng.normal(size=(per, len(c))) for c in centres])
+    return X / np.linalg.norm(X, axis=1, keepdims=True)
+
+
+def test_unrelated_topics_are_not_forced_into_one_area():
+    from filesorter.organize import Levels, group_into_areas
+
+    rng = np.random.default_rng(3)
+    centres = np.linalg.qr(rng.normal(size=(32, 4)))[0].T      # 4 unrelated subjects
+    X = _topics(centres)
+    means = np.stack([X[i * 8:(i + 1) * 8].mean(0) for i in range(4)])
+    from filesorter.organize import measure_levels
+
+    labels = group_into_areas(means, measure_levels(X))
+    assert len(set(labels)) == 4
+
+
+def test_related_topics_share_an_area():
+    from filesorter.organize import group_into_areas, measure_levels
+
+    rng = np.random.default_rng(4)
+    q = np.linalg.qr(rng.normal(size=(32, 6)))[0].T
+    finance, people = q[0], q[1]
+    centres = [finance + 0.9 * q[2], finance + 0.9 * q[3], people + 0.9 * q[4], people + 0.9 * q[5]]
+    centres = [c / np.linalg.norm(c) for c in centres]
+    X = _topics(centres)
+    means = np.stack([X[i * 8:(i + 1) * 8].mean(0) for i in range(4)])
+    labels = group_into_areas(means, measure_levels(X))
+    assert labels[0] == labels[1] and labels[2] == labels[3] and labels[0] != labels[2]
+
+
+def test_camera_photos_are_never_graphics():
+    from filesorter.labels import LABELS, PHOTOS, SCANS, pick_label
+
+    p = np.full(len(LABELS), 0.001)
+    logo = next(i for i, lab in enumerate(LABELS) if lab[1] == "Logos")
+    party = next(i for i, lab in enumerate(LABELS) if lab[1] == "Party & celebration")
+    p[logo], p[party] = 0.6, 0.1
+    p /= p.sum()
+    assert LABELS[pick_label(p)[0]][1] == "Logos"
+    j, _, area = pick_label(p, camera=True)
+    assert area in (PHOTOS, SCANS) and LABELS[j][1] == "Party & celebration"
 
 
 def test_window_runs_a_sort(sample, tmp_path, monkeypatch):
