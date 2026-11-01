@@ -1,0 +1,16 @@
+[project]
+name = "local-file-sorter"
+version = "0.1.0"
+description = "Sorts files into precise topic folders by reading their content - fully offline."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+
+[project.scripts]
+local-file-sorter = "filesorter.__main__:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120

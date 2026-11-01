@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+build/
+dist/
+models/
+packaging/*.ico
+*.egg-info/
+.pytest_cache/
+sample/
+sorted/
+selftest*.json

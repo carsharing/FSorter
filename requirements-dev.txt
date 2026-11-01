@@ -1,0 +1,4 @@
+-r requirements.txt
+pytest>=8
+onnx>=1.15
+fpdf2>=2.7

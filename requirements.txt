@@ -1,0 +1,26 @@
+# Runtime dependencies (all work offline; none of them is used to reach the internet)
+numpy>=1.26
+scipy>=1.11
+scikit-learn>=1.4
+pillow>=10.3
+pillow-heif>=0.16
+pypdfium2>=4.30
+python-docx>=1.1
+openpyxl>=3.1
+python-pptx>=0.6.23
+xlrd>=2.0
+extract-msg>=0.48
+striprtf>=0.0.26
+av>=12.0
+onnxruntime>=1.17
+tokenizers>=0.15
+watchdog>=4.0
+PySide6-Essentials>=6.6
+# OCR runtime dependencies; the OCR package itself is installed separately with --no-deps
+# (pip install --no-deps rapidocr_onnxruntime==1.4.4) because it would pull the full OpenCV build.
+opencv-python-headless>=4.8
+pyclipper>=1.3
+shapely>=2.0
+pyyaml>=6.0
+six>=1.16
+tqdm>=4.66

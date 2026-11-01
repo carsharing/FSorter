@@ -1,0 +1,167 @@
+name: Build Windows app
+
+# Builds LocalFileSorter.exe on a Windows machine, downloads the local AI models ON THE BUILD MACHINE,
+# tests everything with the real models, and publishes ready-to-unzip packages.
+# The app itself never downloads anything.
+
+on:
+  workflow_dispatch:
+    inputs:
+      text_model:
+        description: "Text model size: small, base (recommended) or large"
+        default: "base"
+      llm:
+        description: "Folder-naming model: 1.5b (recommended), 3b or none"
+        default: "1.5b"
+  push:
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: System libraries for Qt
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1 libxkbcommon0
+      - name: Install
+        run: |
+          pip install -r requirements-dev.txt
+          pip install --no-deps rapidocr_onnxruntime==1.4.4
+      - name: Tests
+        run: python -m pytest -q
+
+  windows:
+    needs: tests
+    runs-on: windows-latest
+    env:
+      PYTHONUTF8: "1"
+      TEXT_MODEL: ${{ inputs.text_model || 'base' }}
+      LLM: ${{ inputs.llm || '1.5b' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt -r requirements-build.txt
+          pip install --no-deps rapidocr_onnxruntime==1.4.4
+
+      - name: Install the runtime for the folder-naming model (optional)
+        if: env.LLM != 'none'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          pip install llama-cpp-python --prefer-binary --only-binary=llama-cpp-python `
+            --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+          if ($LASTEXITCODE -ne 0) {
+            # Compile it, for CPUs with AVX2 (any PC from ~2014 on), never tuned to the build machine
+            $env:CMAKE_ARGS = "-DGGML_NATIVE=OFF -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON"
+            pip install llama-cpp-python --no-binary llama-cpp-python
+          }
+          python -c "import llama_cpp; print('llama_cpp', llama_cpp.__version__)"
+
+      - name: Cache models
+        uses: actions/cache@v4
+        with:
+          path: models
+          key: models-v1-${{ env.TEXT_MODEL }}-${{ env.LLM }}-${{ hashFiles('tools/download_models.py') }}
+
+      - name: Download models (on the build machine only)
+        shell: pwsh
+        run: |
+          if (-not (Test-Path models/MODELS.json)) {
+            if ($env:LLM -eq "none") { python tools/download_models.py --out models --text $env:TEXT_MODEL --no-llm }
+            else { python tools/download_models.py --out models --text $env:TEXT_MODEL --llm $env:LLM }
+          }
+          Get-Content models/MODELS.json
+
+      - name: Tests on Windows
+        run: python -m pytest -q
+
+      - name: Self-test with the real models
+        shell: pwsh
+        run: |
+          python -m filesorter selftest --models models --require-models --llm --out selftest-source.json
+          Get-Content selftest-source.json
+
+      - name: Sort a sample folder with the real models
+        shell: pwsh
+        run: |
+          python tests/make_sample.py sample
+          python -m filesorter run --models models --source sample --dest sorted
+          Get-ChildItem -Recurse -Directory sorted | Where-Object { $_.FullName -notmatch "_FileSorter" } | ForEach-Object { $_.FullName.Substring((Resolve-Path sorted).Path.Length) }
+
+      - name: Upload the sample result (to inspect the folders and report)
+        uses: actions/upload-artifact@v4
+        with:
+          name: sample-result
+          path: |
+            sorted/Sorting report.html
+            selftest-source.json
+          retention-days: 7
+
+      - name: Build LocalFileSorter.exe
+        run: pyinstaller packaging/LocalFileSorter.spec --noconfirm
+
+      - name: Put the models next to the app
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist/LocalFileSorter/models | Out-Null
+          Copy-Item -Recurse models/text, models/clip dist/LocalFileSorter/models/
+          if (Test-Path models/llm) { Copy-Item -Recurse models/llm dist/LocalFileSorter/models/ }
+          Copy-Item docs/USER-GUIDE.md dist/LocalFileSorter/
+
+      - name: Self-test the packaged app
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist/LocalFileSorter/LocalFileSorter.exe `
+                 -ArgumentList "selftest", "--require-models", "--llm", "--out", "$PWD/selftest-exe.json" -Wait -PassThru
+          Get-Content selftest-exe.json
+          if ($p.ExitCode -ne 0) { throw "packaged self-test failed" }
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force stage-llm/LocalFileSorter/models | Out-Null
+          if (Test-Path dist/LocalFileSorter/models/llm) {
+            Move-Item dist/LocalFileSorter/models/llm stage-llm/LocalFileSorter/models/
+            7z a -tzip -mx=1 LocalFileSorter-naming-model.zip ./stage-llm/LocalFileSorter
+          }
+          7z a -tzip -mx=5 LocalFileSorter-windows.zip ./dist/LocalFileSorter
+          Get-ChildItem *.zip | Format-Table Name, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LocalFileSorter-windows
+          path: LocalFileSorter-windows.zip
+          retention-days: 14
+          compression-level: 0
+
+      - uses: actions/upload-artifact@v4
+        if: hashFiles('LocalFileSorter-naming-model.zip') != ''
+        with:
+          name: LocalFileSorter-naming-model
+          path: LocalFileSorter-naming-model.zip
+          retention-days: 14
+          compression-level: 0
+
+      - name: Publish a release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            LocalFileSorter-windows.zip
+            LocalFileSorter-naming-model.zip
+          fail_on_unmatched_files: false
