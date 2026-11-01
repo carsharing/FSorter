@@ -28,8 +28,8 @@ from .features import (colour_signature, full_hash, hamming_matrix, head_tail_ha
                        text_fingerprint, to_u64)
 from .labels import LABELS, PHOTOS, TEXTUAL_AREAS, pick_label
 from .models import ModelHub
-from .organize import (CONFIDENT, LOOSE, Levels, Terms, VisualItem, area_threshold, event_name, keyword_table,
-                       organize_documents, organize_visual, segment_events, visual_area)
+from .organize import (CONFIDENT, Levels, Terms, VisualItem, acceptable_match, area_threshold, event_name,
+                       keyword_table, organize_documents, organize_visual, segment_events, visual_area)
 from .paths import (DUPLICATE_DIRNAME, IS_WINDOWS, STATE_DIRNAME, UNSORTED_DIRNAME, is_relative_to, long_path,
                     models_dir)
 from .state import ANALYSIS_VERSION, State, from_blob, to_blob
@@ -708,11 +708,11 @@ class Engine:
                     b = int(row.argmax())
                     if row[b] >= CONFIDENT:
                         self._assign_topic(r, topic_cats[b], float(row[b]), v)
-                    elif row[b] >= LOOSE:
-                        weak[r["id"]] = (topic_cats[b], float(row[b]), v)   # decided after new topics are tried
-                        pending.append(r)
-                    else:
-                        pending.append(r)
+                        continue
+                    ok = acceptable_match(row)
+                    if ok is not None:   # weaker match: decided after new topics are tried
+                        weak[r["id"]] = (topic_cats[ok], float(max(0.0, row[ok])), v)
+                    pending.append(r)
             else:
                 pending.extend(text_new)
             self._new_topics(pending, unsorted_text, weak)

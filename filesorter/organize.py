@@ -34,6 +34,21 @@ DETAIL = {
 }
 CONFIDENT = 0.85   # fraction of the linkage threshold (relative scale) for a confident match
 LOOSE = 0.55       # weaker matches are still sorted but flagged in the report
+CLEAR_MIN, CLEAR_MARGIN = 0.2, 0.3   # ...and so is a modest match that clearly beats every other folder
+                                     # (short texts such as a screenshot's few lines score lower overall)
+
+
+def acceptable_match(row: np.ndarray) -> int | None:
+    """Index of the folder a file may join (scores on the relative scale), or None."""
+    if len(row) == 0:
+        return None
+    b = int(row.argmax())
+    if row[b] >= LOOSE:
+        return b
+    second = np.partition(row, -2)[-2] if len(row) > 1 else -np.inf
+    if row[b] >= CLEAR_MIN and row[b] - second >= CLEAR_MARGIN:
+        return b
+    return None
 DIRECT_LIMIT = 4000
 OTHER_IMAGES = "Other images"
 
@@ -170,11 +185,11 @@ def cluster(X: np.ndarray, detail: str = "normal", levels: Levels | None = None
     leftover = []
     if orphans:
         S = _scores(X[orphans], cents, levels, sim)
-        best = S.argmax(1)
-        for i, b, row in zip(orphans, best, S):
-            if row[b] >= LOOSE:
+        for i, row in zip(orphans, S):
+            b = acceptable_match(row)
+            if b is not None:
                 keep[b].append(i)
-                score[i] = float(min(1.0, row[b]))
+                score[i] = float(min(1.0, max(0.0, row[b])))
             else:
                 leftover.append(i)
     # Files that are still alone may form small groups among themselves.
@@ -352,6 +367,18 @@ def group_into_areas(means: np.ndarray, levels: Levels, detail: str = "normal") 
     return labels
 
 
+def _too_close(name: str, others: list[str]) -> bool:
+    """'Macros VBA' vs 'Excel Macros VBA': a parent name that merely repeats a sub-folder (or another area)."""
+    a = name.lower().strip()
+    wa = set(re.findall(r"\w+", a))
+    for o in others:
+        b = o.lower().strip()
+        wb = set(re.findall(r"\w+", b))
+        if a == b or a in b or b in a or (wa and wb and len(wa & wb) / len(wa | wb) >= 0.6):
+            return True
+    return False
+
+
 def organize_documents(X: np.ndarray, doc_terms: Terms, titles: list[str], detail: str = "normal",
                        namer=None, levels: Levels | None = None, texts: list[str] | None = None
                        ) -> tuple[list[Topic], Levels, float]:
@@ -394,11 +421,11 @@ def organize_documents(X: np.ndarray, doc_terms: Terms, titles: list[str], detai
         if namer is not None:
             kw = [k for ti in tis for k in topics[ti].keywords[:3]]
             children = [topics[ti].name for ti in tis]
-            taken = {c.lower() for c in children} | {a.lower() for a in used_areas}
+            avoid = children + sorted(used_areas)
             aname = namer.name_area(children, kw)
-            if aname and aname.lower() in taken:   # must be broader than its sub-folders: ask once more
-                aname = namer.name_area(children, kw, avoid=sorted(taken))
-                if aname and aname.lower() in taken:
+            if aname and _too_close(aname, avoid):   # must be broader than its sub-folders: ask once more
+                aname = namer.name_area(children, kw, avoid=avoid)
+                if aname and _too_close(aname, avoid):
                     aname = None
         if not aname:
             k = area_keyword(tis, topic_presence, [t.keywords for t in topics])

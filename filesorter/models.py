@@ -397,7 +397,7 @@ class LocalNamer:
             "Give the name of the broad parent folder that contains these sub-folders: 1 to 3 words, broader "
             "than the sub-folders, like a field or a department (for example 'Finance', 'Human resources', "
             "'IT & security', 'Marketing', 'Training', 'Research', 'Legal', 'Sales', 'Operations'). "
-            f"It must be different from the sub-folder names.{rule}\n"
+            f"It must cover ALL the sub-folders together and be different from their names.{rule}\n"
             f"Sub-folders:\n{subs}\nKeywords: {', '.join(keywords[:10])}\nParent folder name:"
         )
 

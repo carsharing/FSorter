@@ -113,3 +113,21 @@ def test_window_runs_a_sort(sample, tmp_path, monkeypatch):
     assert "files copied" in win.stage.text()
     assert (tmp_path / "Sorted" / "Sorting report.html").exists()
     win.watcher.stop()
+
+
+def test_clear_winner_rule_for_short_texts():
+    from filesorter.organize import acceptable_match
+
+    assert acceptable_match(np.array([0.9, 0.1])) == 0            # good match
+    assert acceptable_match(np.array([0.4, 0.05, 0.0])) == 0      # modest, but clearly the best folder
+    assert acceptable_match(np.array([0.4, 0.3])) is None          # modest and ambiguous
+    assert acceptable_match(np.array([0.1, 0.0])) is None          # unrelated to everything
+
+
+def test_parent_name_must_not_repeat_a_subfolder():
+    from filesorter.organize import _too_close
+
+    assert _too_close("Macros VBA", ["Excel Macros VBA"])
+    assert _too_close("excel macros vba", ["Excel Macros VBA"])
+    assert not _too_close("Training", ["Excel Macros VBA"])
+    assert not _too_close("Human resources", ["Onboarding Interview Handbook"])

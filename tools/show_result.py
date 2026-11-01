@@ -11,12 +11,12 @@ from pathlib import Path
 
 def main(dest: Path) -> None:
     db = sqlite3.connect(str(dest / "_FileSorter" / "state.sqlite"))
-    rows = db.execute("""SELECT p.dest, f.name, p.role, p.reason, f.label, f.area_hint
+    rows = db.execute("""SELECT p.dest, f.name, p.role, p.reason, f.label, f.area_hint, p.confidence
                          FROM placements p JOIN files f ON f.id = p.file_id ORDER BY p.dest""").fetchall()
     by_folder = defaultdict(list)
-    for dest_rel, name, role, reason, label, area in rows:
+    for dest_rel, name, role, reason, label, area, conf in rows:
         folder = str(Path(dest_rel).parent) if dest_rel else "(not copied)"
-        by_folder[folder].append((name, role, reason, label, area))
+        by_folder[folder].append((name, role, f"{reason or ''} ({conf or 0:.2f})", label, area))
     for folder in sorted(by_folder):
         print(f"\n{folder}/")
         for name, role, reason, label, area in by_folder[folder]:
